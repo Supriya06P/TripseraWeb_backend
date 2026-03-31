@@ -10,7 +10,7 @@ const app = express();
 
 // --- MIDDLEWARE ---
 app.use(cors({
-    origin: ["http://localhost:3000","http://localhost:8080","https://tripsera2026.vercel.app", "https://tripsera-web-frontend-4sft.vercel.app"],
+    origin: ["http://localhost:3000","http://localhost:8080"],
     methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"]
@@ -41,36 +41,12 @@ const connectionOptions = {
   family: 4                       // Force IPv4 to avoid DNS resolution issues
 };
 
-// mongoose.connect(dbURI, connectionOptions)
-//   .then(() => console.log("✅ MongoDB Connected Successfully!"))
-//   .catch(err => {
-//     console.error("❌ Connection Error:", err.message);
-//     console.log("💡 Tip: Ensure IP 0.0.0.0/0 is whitelisted in Atlas Network Access.");
-//   });
-
-let isConnected = false;
-
-async function connectToMongoDB() {
-try{
-  await   mongoose.connect(dbURI, connectionOptions, {
-
+mongoose.connect(dbURI, connectionOptions)
+  .then(() => console.log("✅ MongoDB Connected Successfully!"))
+  .catch(err => {
+    console.error("❌ Connection Error:", err.message);
+    console.log("💡 Tip: Ensure IP 0.0.0.0/0 is whitelisted in Atlas Network Access.");
   });
-  isConnected=true;
-  console.log("✅ MongoDB Connected Successfully!");
-}
-catch (error){
-  console.error("❌ Connection Error:", error.message);
-console.log("💡 Tip: Ensure IP 0.0.0.0/0 is whitelisted in Atlas Network Access.");
-}
-  
-}
-
-app.use((req,res,next) =>{
-  if(!isConnected){
-    connectToMongoDB();
-  }
-  next();
-})
 const Razorpay = require('razorpay');
 const crypto = require('crypto'); // Built-in Node module for signature verification
 
@@ -297,12 +273,15 @@ app.get('/api/proxy', async (req, res) => {
 });
 
 // --- SERVER START / EXPORT ---
-// const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000;
 
-// // This works for BOTH Local development and Render
-// app.listen(PORT, '0.0.0.0', () => {
-//     console.log(`🚀 Tripsera Backend running on port ${PORT}`);
+// Only start the listener if we're not on Vercel
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, () => console.log(`🚀 Tripsera Backend running on port ${PORT}`));
+}
+// app.listen(PORT, () => {
+//   console.log(`🚀 Tripsera Backend running on port ${PORT}`);
 // });
 
-// Keep this for Vercel compatibility if you still plan to deploy there
+// Export the app for Vercel serverless functions
 module.exports = app;
