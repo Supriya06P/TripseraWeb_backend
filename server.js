@@ -11,30 +11,37 @@ const crypto = require('crypto');
 const app = express();
 
 // --- MIDDLEWARE ---
+// Explicitly include your Vercel domains to prevent CORS blocks in production
 app.use(cors({
     origin: [
-        "http://localhost:3000", 
-        "http://localhost:8080", 
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "https://tripsera2026.vercel.app", // Add your actual Vercel project URLs
+        "https://tripsera-web-frontend-4sft.vercel.app"
     ],
     methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
 app.use(express.json());
 
 // --- DATABASE CONNECTION (SERVERLESS OPTIMIZED) ---
 let isConnected = false;
 
 const connectToMongoDB = async () => {
-    if (isConnected) return;
+    if (isConnected) return; // Use existing connection if available
+
     const dbURI = process.env.MONGODB_URI;
-    if (!dbURI) throw new Error("MONGODB_URI is missing in environment variables.");
+    if (!dbURI) {
+        throw new Error("MONGODB_URI is missing in environment variables.");
+    }
 
     try {
         const db = await mongoose.connect(dbURI, {
-            serverSelectionTimeoutMS: 5000,
+            serverSelectionTimeoutMS: 5000, 
             socketTimeoutMS: 45000,
-            family: 4
+            family: 4 // Force IPv4 for stability on some networks
         });
         isConnected = db.connections[0].readyState;
         console.log("✅ MongoDB Connected Successfully!");
@@ -44,7 +51,7 @@ const connectToMongoDB = async () => {
     }
 };
 
-// Global Middleware to ensure DB connection before handling any request
+// Global Middleware to ensure DB connection before handling any route
 app.use(async (req, res, next) => {
     try {
         await connectToMongoDB();
@@ -82,7 +89,7 @@ const flyerSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-// Prevent model re-definition errors in development (common with HMR)
+// Prevent model re-definition errors during Vercel hot-reloads
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Flyer = mongoose.models.Flyer || mongoose.model('Flyer', flyerSchema);
 
@@ -233,7 +240,7 @@ app.delete('/api/flyers/:id', async (req, res) => {
     }
 });
 
-// 5. PROXY ROUTE (For Tainted Canvas fixes)
+// 5. PROXY ROUTE (Fixes Canvas Tainting for PDF Export)
 app.get('/api/proxy', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send("URL is required");
@@ -249,13 +256,12 @@ app.get('/api/proxy', async (req, res) => {
 
 // --- EXPORT / START ---
 const PORT = process.env.PORT || 5000;
-// if (process.env.NODE_ENV !== 'production') {
-//     app.listen(PORT, '0.0.0.0', () => {
-//         console.log(`🚀 Tripsera Backend running on port ${PORT}`);
-//     });
-// }
- app.listen(PORT, () => {
-  console.log(`🚀 Tripsera Backend running on port ${PORT}`);
-});
+
+// Wraps listen in a production check to let Vercel handle execution automatically
+if (process.env.NODE_ENV !== 'production') {
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 Tripsera Backend running on port ${PORT}`);
+    });
+}
 
 module.exports = app;
