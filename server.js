@@ -9,20 +9,23 @@ const axios = require('axios');
 const app = express();
 
 // --- MIDDLEWARE ---
+app.use(cors({
+    origin: ["http://localhost:3000","http://localhost:8080","https://tripsera2026.vercel.app", "https://tripsera-web-frontend-4sft.vercel.app"],
+    methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
 // app.use(cors({
-//     origin: ["https://your-frontend-domain.vercel.app", "http://localhost:3000"],
+//     origin: "*", // Allows any frontend to connect (Use this to test if it's working)
 //     methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
 //     credentials: true
 // }));
-app.use(cors({
-    origin: "*", // Allows any frontend to connect (Use this to test if it's working)
-    methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
-    credentials: true
-}));
 app.use(express.json());
 app.get('/', (req, res) => {
   res.send('🚀 Backend is running successfully!');
 });
+
+
 
 // --- DATABASE CONNECTION ---
 const dbURI = process.env.MONGODB_URI;
@@ -38,13 +41,96 @@ const connectionOptions = {
   family: 4                       // Force IPv4 to avoid DNS resolution issues
 };
 
-mongoose.connect(dbURI, connectionOptions)
-  .then(() => console.log("✅ MongoDB Connected Successfully!"))
-  .catch(err => {
-    console.error("❌ Connection Error:", err.message);
-    console.log("💡 Tip: Ensure IP 0.0.0.0/0 is whitelisted in Atlas Network Access.");
-  });
+// mongoose.connect(dbURI, connectionOptions)
+//   .then(() => console.log("✅ MongoDB Connected Successfully!"))
+//   .catch(err => {
+//     console.error("❌ Connection Error:", err.message);
+//     console.log("💡 Tip: Ensure IP 0.0.0.0/0 is whitelisted in Atlas Network Access.");
+//   });
 
+let isConnected = false;
+
+async function connectToMongoDB() {
+try{
+  await   mongoose.connect(dbURI, connectionOptions, {
+
+  });
+  isConnected=true;
+  console.log("✅ MongoDB Connected Successfully!");
+}
+catch (error){
+  console.error("❌ Connection Error:", error.message);
+console.log("💡 Tip: Ensure IP 0.0.0.0/0 is whitelisted in Atlas Network Access.");
+}
+  
+}
+
+app.use((req,res,next) =>{
+  if(!isConnected){
+    connectToMongoDB();
+  }
+  next();
+})
+const Razorpay = require('razorpay');
+const crypto = require('crypto'); // Built-in Node module for signature verification
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+
+app.post('/api/create-order', async (req, res) => {
+  try {
+    const { amount } = req.body;
+    
+    // Check if keys are actually present right before using them
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
+      return res.status(500).json({ error: "Server keys are not configured in .env" });
+    }
+
+    const options = {
+      amount: parseInt(amount) * 100, // Ensure this is 50000 for 500 INR
+      currency: "INR",
+      receipt: `receipt_${Date.now()}`,
+    };
+
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (error) {
+    // THIS IS THE CRITICAL LOG
+    console.error("RAZORPAY SDK ERROR OBJECT:", error); 
+    
+    // Return the specific Razorpay error if available
+    res.status(500).json({ 
+      error: error.description || error.message || "Razorpay Order Creation Failed" 
+    });
+  }
+});
+
+// Step 2: Verify the payment signature
+app.post('/api/verify-payment', async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    // Create the expected signature using your Secret Key
+    const sign = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSign = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(sign.toString())
+      .digest("hex");
+
+    // Compare signatures
+    if (razorpay_signature === expectedSign) {
+      return res.status(200).json({ success: true, message: "Payment verified successfully" });
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid signature" });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send("Internal Server Error");
+  }
+});
 // --- 1. SCHEMAS ---
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
@@ -56,6 +142,7 @@ const userSchema = new mongoose.Schema({
 
 const flyerSchema = new mongoose.Schema({
   title: String,
+  price: { type: Number, default: 0 },
   thumbnail: String,
   canvasSize: {
     width: { type: Number, default: 400 },
@@ -210,15 +297,12 @@ app.get('/api/proxy', async (req, res) => {
 });
 
 // --- SERVER START / EXPORT ---
-const PORT = process.env.PORT || 5000;
+// const PORT = process.env.PORT || 5000;
 
-// Only start the listener if we're not on Vercel
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => console.log(`🚀 Tripsera Backend running on port ${PORT}`));
-}
-// app.listen(PORT, () => {
-//   console.log(`🚀 Tripsera Backend running on port ${PORT}`);
+// // This works for BOTH Local development and Render
+// app.listen(PORT, '0.0.0.0', () => {
+//     console.log(`🚀 Tripsera Backend running on port ${PORT}`);
 // });
 
-// Export the app for Vercel serverless functions
+// Keep this for Vercel compatibility if you still plan to deploy there
 module.exports = app;
