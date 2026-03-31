@@ -10,38 +10,32 @@ const crypto = require('crypto');
 
 const app = express();
 
-// --- MIDDLEWARE ---
-// Explicitly include your Vercel domains to prevent CORS blocks in production
+// --- 1. MIDDLEWARE ---
 app.use(cors({
     origin: [
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "https://tripsera2026.vercel.app", // Add your actual Vercel project URLs
-        "https://tripsera-web-frontend-4sft.vercel.app"
+        "http://localhost:3000", 
+        "http://localhost:8080", 
     ],
     methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
-
 app.use(express.json());
 
-// --- DATABASE CONNECTION (SERVERLESS OPTIMIZED) ---
-let isConnected = false;
+// --- 2. DATABASE CONNECTION (SERVERLESS OPTIMIZED) ---
+let isConnected = false; 
 
 const connectToMongoDB = async () => {
-    if (isConnected) return; // Use existing connection if available
+    if (isConnected) return; // Use existing connection if it's already open
 
     const dbURI = process.env.MONGODB_URI;
-    if (!dbURI) {
-        throw new Error("MONGODB_URI is missing in environment variables.");
-    }
+    if (!dbURI) throw new Error("MONGODB_URI is missing in environment variables.");
 
     try {
         const db = await mongoose.connect(dbURI, {
-            serverSelectionTimeoutMS: 5000, 
+            serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,
-            family: 4 // Force IPv4 for stability on some networks
+            family: 4
         });
         isConnected = db.connections[0].readyState;
         console.log("✅ MongoDB Connected Successfully!");
@@ -51,7 +45,7 @@ const connectToMongoDB = async () => {
     }
 };
 
-// Global Middleware to ensure DB connection before handling any route
+// Middleware to ensure DB is connected before any route runs
 app.use(async (req, res, next) => {
     try {
         await connectToMongoDB();
@@ -61,13 +55,13 @@ app.use(async (req, res, next) => {
     }
 });
 
-// --- RAZORPAY CONFIG ---
+// --- 3. RAZORPAY CONFIG ---
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-// --- SCHEMAS & MODELS ---
+// --- 4. SCHEMAS & MODELS ---
 const userSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
@@ -89,23 +83,20 @@ const flyerSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-// Prevent model re-definition errors during Vercel hot-reloads
+// Important: Use mongoose.models to prevent "Cannot overwrite model" error on Vercel
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Flyer = mongoose.models.Flyer || mongoose.model('Flyer', flyerSchema);
 
-// --- ROUTES ---
+// --- 5. ROUTES ---
 
 app.get('/', (req, res) => {
     res.send('🚀 Tripsera Backend is running successfully!');
 });
 
-// 1. PAYMENT ROUTES
+// --- PAYMENT ROUTES ---
 app.post('/api/create-order', async (req, res) => {
     try {
         const { amount } = req.body;
-        if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-            return res.status(500).json({ error: "Razorpay keys not configured" });
-        }
         const options = {
             amount: parseInt(amount) * 100,
             currency: "INR",
@@ -122,13 +113,10 @@ app.post('/api/verify-payment', async (req, res) => {
     try {
         const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
         const sign = razorpay_order_id + "|" + razorpay_payment_id;
-        const expectedSign = crypto
-            .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-            .update(sign.toString())
-            .digest("hex");
+        const expectedSign = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(sign.toString()).digest("hex");
 
         if (razorpay_signature === expectedSign) {
-            res.status(200).json({ success: true, message: "Payment verified successfully" });
+            res.status(200).json({ success: true, message: "Payment verified" });
         } else {
             res.status(400).json({ success: false, message: "Invalid signature" });
         }
@@ -137,7 +125,7 @@ app.post('/api/verify-payment', async (req, res) => {
     }
 });
 
-// 2. AUTH ROUTES
+// --- AUTH ROUTES ---
 app.post('/api/auth/signup', async (req, res) => {
     try {
         const { email, password, agencyName, adminKey } = req.body;
@@ -164,28 +152,20 @@ app.post('/api/auth/signin', async (req, res) => {
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) return res.status(401).json({ message: "Invalid credentials" });
 
-        const token = jwt.sign(
-            { id: user._id, role: user.role },
-            process.env.JWT_SECRET || process.env.ADMIN_SECRET_KEY, 
-            { expiresIn: '1d' }
-        );
-
-        res.json({
-            token,
-            user: { email: user.email, agencyName: user.agencyName, role: user.role }
-        });
+        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "secret", { expiresIn: '1d' });
+        res.json({ token, user: { email: user.email, agencyName: user.agencyName, role: user.role } });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 });
 
-// 3. DASHBOARD & STATS ROUTES
+// --- DASHBOARD & FLYER ROUTES ---
 app.get('/api/users/count', async (req, res) => {
     try {
         const totalUsers = await User.countDocuments();
         res.json({ total: totalUsers });
     } catch (error) {
-        res.status(500).json({ message: "Error fetching user count" });
+        res.status(500).json({ message: "Error count" });
     }
 });
 
@@ -200,12 +180,11 @@ app.get('/api/flyers/recent-count', async (req, res) => {
     }
 });
 
-// 4. FLYER DATA ROUTES
 app.post('/api/save-flyer', async (req, res) => {
     try {
         const newFlyer = new Flyer(req.body);
         await newFlyer.save();
-        res.status(201).json({ message: "Saved successfully!" });
+        res.status(201).json({ message: "Saved!" });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -240,7 +219,7 @@ app.delete('/api/flyers/:id', async (req, res) => {
     }
 });
 
-// 5. PROXY ROUTE (Fixes Canvas Tainting for PDF Export)
+// --- PROXY ROUTE ---
 app.get('/api/proxy', async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send("URL is required");
@@ -250,18 +229,17 @@ app.get('/api/proxy', async (req, res) => {
         res.set('Content-Type', response.headers['content-type']);
         response.data.pipe(res);
     } catch (error) {
-        res.status(500).send("Error fetching image");
+        res.status(500).send("Error");
     }
 });
 
-// --- EXPORT / START ---
+// --- 6. EXPORT / START ---
 const PORT = process.env.PORT || 5000;
 
-// Wraps listen in a production check to let Vercel handle execution automatically
+// On Vercel, we MUST NOT call app.listen() for production.
+// Vercel turns this file into a serverless function automatically.
 if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 Tripsera Backend running on port ${PORT}`);
-    });
+    app.listen(PORT, () => console.log(`🚀 Local Server: http://localhost:${PORT}`));
 }
 
 module.exports = app;
