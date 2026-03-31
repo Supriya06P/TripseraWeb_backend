@@ -15,8 +15,6 @@ app.use(cors({
     origin: [
         "http://localhost:3000", 
         "http://localhost:8080", 
-        "https://tripsera2026.vercel.app", 
-        "https://tripsera-web-frontend-4sft.vercel.app"
     ],
     methods: ["POST", "GET", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
