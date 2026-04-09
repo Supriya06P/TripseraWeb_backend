@@ -17,6 +17,7 @@ app.use(cors({
         const allowedOrigins = [
             "http://localhost:3000",
             "http://localhost:8080",
+            "http://localhost:5173",
             "https://tripsera-web-frontend.vercel.app",
             "https://tripsera2026.vercel.app"
         ];
@@ -67,7 +68,31 @@ app.use(async (req, res, next) => {
         res.status(500).json({ message: "Database connection failed", error: error.message });
     }
 });
+// --- NEW: PHONE AUTH OTP ROUTE ---
+app.post('/api/auth/send-otp', async (req, res) => {
+    try {
+        const { phone } = req.body;
 
+        if (!phone) {
+            return res.status(400).json({ message: "Phone number is required" });
+        }
+
+        // Logic: Generate a random 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000);
+
+        
+        console.log(`DEBUG: OTP for ${phone} is ${otp}`);
+
+        // Success response
+        res.status(200).json({ 
+            success: true, 
+            message: "OTP sent successfully!", 
+            otp: otp // Sending OTP in response ONLY for your development/testing
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Backend error: " + error.message });
+    }
+});
 // --- 3. RAZORPAY CONFIG ---
 const razorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
@@ -183,6 +208,53 @@ app.post('/api/auth/signin', async (req, res) => {
     }
 });
 
+app.get('/api/auth/google', (req, res) => {
+    // Replace with your actual Google Client ID
+    const clientID = process.env.GOOGLE_CLIENT_ID;
+    const redirectURI = encodeURIComponent("http://localhost:5173/auth"); 
+    const scope = encodeURIComponent("email profile");
+    
+    const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientID}&redirect_uri=${redirectURI}&scope=${scope}`;
+    
+    res.redirect(googleUrl);
+});
+// --- NEW: GOOGLE SYNC ROUTE ---
+// --- ADD THIS TO YOUR BACKEND ROUTES ---
+app.post('/api/auth/google-sync', async (req, res) => {
+    try {
+        const { email, name, googleId } = req.body;
+
+        // 1. Find or Create User
+        let user = await User.findOne({ email });
+
+        if (!user) {
+            // Create user if they don't exist (using a random password for social login)
+            const hashedPassword = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10);
+            user = new User({
+                email,
+                name,
+                password: hashedPassword,
+                agencyName: name || "Travel Agency",
+                role: "user"
+            });
+            await user.save();
+        }
+
+        // 2. Create JWT Token
+        const token = jwt.sign(
+            { id: user._id, role: user.role },
+            process.env.JWT_SECRET || 'your_secret_key', 
+            { expiresIn: '1d' }
+        );
+
+        res.status(200).json({
+            token,
+            user: { email: user.email, agencyName: user.agencyName, role: user.role }
+        });
+    } catch (error) {
+        res.status(500).json({ message: "Sync error: " + error.message });
+    }
+});
 // DASHBOARD
 app.get('/api/users/count', async (req, res) => {
     try {
