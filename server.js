@@ -210,8 +210,8 @@ app.post('/api/auth/signin', async (req, res) => {
 
 app.get('/api/auth/google', (req, res) => {
     // Replace with your actual Google Client ID
-    const clientID = process.env.GOOGLE_CLIENT_ID;
-    const redirectURI = encodeURIComponent("http://localhost:5173/auth"); 
+    const clientID = process.env.VITE_GOOGLE_CLIENT_ID;
+    const redirectURI = encodeURIComponent("https://tripsera-web-backend.vercel.app/auth"); 
     const scope = encodeURIComponent("email profile");
     
     const googleUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientID}&redirect_uri=${redirectURI}&scope=${scope}`;
